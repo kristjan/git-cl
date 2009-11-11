@@ -221,6 +221,22 @@ class Changelist:
     self.GetBranch()  # Poke the lazy loader.
     return self.branchref
 
+  def GetUpstreamTuple(self):
+    """Returns a tuple containg remote and remote ref,
+       e.g. 'origin', 'refs/heads/master'
+    """
+    branch = self.GetBranch()
+    remote = RunGit(['config', 'branch.%s.remote' % branch]).strip()
+    if not remote:
+      # We aren't a tracking branch, assume origin
+      remote = 'origin'
+    branch = RunGit(['config', 'branch.%s.merge' % branch],
+                    error_ok=True).strip()
+    if not branch:
+      # We aren't a tracking branch, assume origin/master
+      branch = 'master'
+    return remote, branch
+
   def GetUpstreamBranch(self):
     if self.upstream_branch is None:
       branch = self.GetBranch()
@@ -595,9 +611,16 @@ def CmdUpload(args):
   cl.SetPatchset(patchset)
 
 
-def CmdDCommit(args):
+def SendUpstream(args, cmd='dcommit'):
+  """Common code for CmdPush and CmdDCommit
+
+  Squashed commit into a single.
+  Updates changelog with metadata (e.g. pointer to review).
+  Pushes/dcommits the code upstream.
+  Updates review and closes.
+  """
   parser = optparse.OptionParser(
-      usage='git cl dcommit [options] [git-svn branch to apply against]')
+      usage='git cl %s [options] [upstream branch to apply against]' % cmd)
   parser.add_option('--bypass-hooks', action='store_true', dest='bypass_hooks',
                     help='bypass upload presubmit hook')
   parser.add_option('-m', dest='message',
@@ -614,14 +637,14 @@ def CmdDCommit(args):
 
   cl = Changelist()
 
-  if not args:
+  if not args or cmd == 'push':
     # Default to merging against our best guess of the upstream branch.
     args = [cl.GetUpstreamBranch()]
 
   base_branch = args[0]
 
   if RunGit(['diff-index', 'HEAD']):
-    print 'Cannot dcommit with a dirty tree.  You must commit locally first.'
+    print 'Cannot %s with a dirty tree.  You must commit locally first.' % cmd
     return 1
 
   # This rev-list syntax means "show all commits not in my branch that
@@ -631,21 +654,22 @@ def CmdDCommit(args):
   if upstream_commits:
     print ('Base branch "%s" has %d commits '
            'not in this branch.' % (base_branch, len(upstream_commits)))
-    print 'Run "git merge %s" before attempting to dcommit.' % base_branch
+    print 'Run "git merge %s" before attempting to %s.' % (base_branch, cmd)
     return 1
 
   if not options.force and not options.bypass_hooks:
     RunHook(PREDCOMMIT_HOOK, upstream_branch=base_branch, error_ok=False)
 
-    # Check the tree status if the tree status URL is set.
-    status = GetTreeStatus()
-    if 'closed' == status:
-      print ('The tree is closed.  Please wait for it to reopen. Use '
-             '"git cl dcommit -f" to commit on a closed tree.')
-      return 1
-    elif 'unknown' == status:
-      print ('Unable to determine tree status.  Please verify manually and '
-             'use "git cl dcommit -f" to commit on a closed tree.')
+    if cmd == 'dcommit':
+      # Check the tree status if the tree status URL is set.
+      status = GetTreeStatus()
+      if 'closed' == status:
+        print ('The tree is closed.  Please wait for it to reopen. Use '
+               '"git cl dcommit -f" to commit on a closed tree.')
+        return 1
+      elif 'unknown' == status:
+        print ('Unable to determine tree status.  Please verify manually and '
+               'use "git cl dcommit -f" to commit on a closed tree.')
 
   description = options.message
   if not options.tbr:
@@ -708,23 +732,43 @@ def CmdDCommit(args):
     RunGit(['checkout', '-q', '-b', MERGE_BRANCH, base_branch])
     RunGit(['merge', '--squash', cl.GetBranchRef()])
     RunGit(['commit', '-m', description])
-    # dcommit the merge branch.
-    output = RunGit(['svn', 'dcommit', '--no-rebase'])
+    if cmd == 'push':
+      # push the merge branch.
+      remote, branch = cl.GetUpstreamTuple()
+      output = RunGit(['push', remote, 'HEAD:%s' % branch], exit_code=True)
+    else:
+      # dcommit the merge branch.
+      output = RunGit(['svn', 'dcommit', '--no-rebase'])
   finally:
     # And then swap back to the original branch and clean up.
     RunGit(['checkout', '-q', cl.GetBranch()])
     RunGit(['branch', '-D', MERGE_BRANCH])
 
-  if cl.has_issue and output.find("Committed r") != -1:
-    print "Closing issue (you may be prompted for your codereview password)..."
-    viewvc_url = settings.GetViewVCUrl()
-    if viewvc_url:
-      revision = re.compile(".*?\nCommitted r(\d+)",
-                            re.DOTALL).match(output).group(1)
-      cl.description = (cl.description +
-                        "\n\nCommitted: " + viewvc_url + revision)
-    cl.CloseIssue()
-    cl.SetIssue(0)
+  if cl.has_issue:
+    if cmd == 'dcommit' and output.find("Committed r") != -1:
+      print "Closing issue " \
+          "(you may be prompted for your codereview password)..."
+      viewvc_url = settings.GetViewVCUrl()
+      if viewvc_url:
+        revision = re.compile(".*?\nCommitted r(\d+)",
+                              re.DOTALL).match(output).group(1)
+        cl.description = (cl.description +
+                          "\n\nCommitted: " + viewvc_url + revision)
+        cl.CloseIssue()
+        cl.SetIssue(0)
+    elif cmd == 'push' and output == 0:
+      print "Closing issue " \
+          "(you may be prompted for your codereview password)..."
+      cl.CloseIssue()
+      cl.SetIssue(0)
+
+
+def CmdDCommit(args):
+  SendUpstream(args, cmd='dcommit')
+
+
+def CmdPush(args):
+  SendUpstream(args, cmd='push')
 
 
 def CmdPatch(args):
@@ -836,6 +880,7 @@ def CmdUpstream(args):
 COMMANDS = [
   ('config',  'edit configuration for this tree',            CmdConfig),
   ('dcommit', 'commit the current changelist via git-svn',   CmdDCommit),
+  ('push',    'commit the current changelist via git',       CmdPush),
   ('issue',   'show/set current branch\'s issue number',     CmdIssue),
   ('patch',   'patch in a code review',                      CmdPatch),
   ('presubmit', 'run presubmit tests on the current changelist', CmdPresubmit),
