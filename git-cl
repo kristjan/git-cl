@@ -637,11 +637,12 @@ def SendUpstream(args, cmd='dcommit'):
 
   cl = Changelist()
 
-  if not args or cmd == 'push':
-    # Default to merging against our best guess of the upstream branch.
-    args = [cl.GetUpstreamBranch()]
+  if cmd == 'dcommit' and args:
+    print 'dcommit always commits all changes you have since trunk.'
+    print 'Do not specify a base branch to upload against.'
+    return 1
 
-  base_branch = args[0]
+  base_branch = cl.GetUpstreamBranch()
 
   if RunGit(['diff-index', 'HEAD']):
     print 'Cannot %s with a dirty tree.  You must commit locally first.' % cmd
@@ -764,11 +765,11 @@ def SendUpstream(args, cmd='dcommit'):
 
 
 def CmdDCommit(args):
-  SendUpstream(args, cmd='dcommit')
+  return SendUpstream(args, cmd='dcommit')
 
 
 def CmdPush(args):
-  SendUpstream(args, cmd='push')
+  return SendUpstream(args, cmd='push')
 
 
 def CmdPatch(args):
