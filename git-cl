@@ -754,8 +754,8 @@ def SendUpstream(args, cmd='dcommit'):
                               re.DOTALL).match(output).group(1)
         cl.description = (cl.description +
                           "\n\nCommitted: " + viewvc_url + revision)
-        cl.CloseIssue()
-        cl.SetIssue(0)
+      cl.CloseIssue()
+      cl.SetIssue(0)
     elif cmd == 'push' and output == 0:
       print "Closing issue " \
           "(you may be prompted for your codereview password)..."
