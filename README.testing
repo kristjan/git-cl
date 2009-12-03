@@ -11,5 +11,11 @@ To set this up:
 
 Run Rietveld:
 /path/to/appengine/sdk/dev_appserver.py /path/to/rietveld
+(If using one of the App Engine launchers, be sure to use port 8080
+ for this project.)
 
-And then run the tests.
+To run Rietveld you will need Django 1.0 which is not included with
+the App Engine SDK.  Go to http://www.djangoproject.com/download,
+download Django-1.0.4.tar.gz, then "sudo python setup.py install".
+
+And then, finally, run the tests.
