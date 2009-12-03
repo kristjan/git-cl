@@ -51,7 +51,7 @@ def RunGit(args, **kwargs):
   return RunCommand(cmd, **kwargs)
 
 
-class Settings:
+class Settings(object):
   def __init__(self):
     self.server = None
     self.cc = None
@@ -73,8 +73,14 @@ class Settings:
     return self.server
 
   def GetCCList(self):
+    """Return the users cc'd on this CL.
+
+    Return is a string suitable for passing to gcl with the --cc flag.
+    """
     if self.cc is None:
       self.cc = self._GetConfig('rietveld.cc', error_ok=True)
+      more_cc = self._GetConfig('rietveld.extra_cc', error_ok=True)
+      self.cc = ','.join(x for x in (self.cc, more_cc) if x)
     return self.cc
 
   def GetRoot(self):
@@ -195,7 +201,7 @@ def ShortBranchName(branch):
   return branch.replace('refs/heads/', '')
 
 
-class Changelist:
+class Changelist(object):
   def __init__(self, branchref=None):
     # Poke settings so we get the "configure your server" message if necessary.
     settings.GetServer()
