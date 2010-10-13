@@ -20,7 +20,7 @@ try:
 except ImportError:
   pass
 
-DEFAULT_SERVER = 'codereview.appspot.com'
+DEFAULT_SERVER = 'http://codereview.appspot.com'
 PREDCOMMIT_HOOK = '.git/hooks/pre-cl-dcommit'
 PREUPLOAD_HOOK = '.git/hooks/pre-cl-upload'
 
@@ -82,6 +82,9 @@ class Settings(object):
                                       error_message=error_message)
       else:
         self.server = self._GetConfig('rietveld.server', error_ok=True)
+      if (not self.server.startswith("http://") and
+          not self.server.startswith("https://")):
+        self.server = "http://" + self.server
     return self.server
 
   def GetCCList(self):
@@ -207,7 +210,7 @@ def CheckForMigration():
 
 def IssueURL(issue):
   """Get the URL for a particular issue."""
-  return 'http://%s/%s' % (settings.GetServer(), issue)
+  return '%s/%s' % (settings.GetServer(), issue)
 
 
 def ShortBranchName(branch):
@@ -365,7 +368,7 @@ or verify this branch is set up to track another (via the --track argument to
 def GetCodereviewSettingsInteractively():
   """Prompt the user for settings."""
   server = settings.GetServer(error_ok=True)
-  prompt = 'Rietveld server (host[:port])'
+  prompt = 'Rietveld server (http[s]://host[:port])'
   prompt += ' [%s]' % (server or DEFAULT_SERVER)
   newserver = raw_input(prompt + ': ')
   if not server and not newserver:
@@ -813,15 +816,15 @@ def CmdPatch(args):
   if re.match(r'\d+', input):
     # Input is an issue id.  Figure out the URL.
     issue = input
-    fetch = "curl --silent http://%s/%s" % (settings.GetServer(), issue)
+    fetch = "curl --silent %s/%s" % (settings.GetServer(), issue)
     grep = "grep -E -o '/download/issue[0-9]+_[0-9]+.diff'"
     pipe = subprocess.Popen("%s | %s" % (fetch, grep), shell=True,
                             stdout=subprocess.PIPE)
     path = pipe.stdout.read().strip()
-    url = 'http://%s%s' % (settings.GetServer(), path)
+    url = '%s%s' % (settings.GetServer(), path)
   else:
     # Assume it's a URL to the patch.
-    match = re.match(r'http://.*?/issue(\d+)_\d+.diff', input)
+    match = re.match(r'https?://.*?/issue(\d+)_\d+.diff', input)
     if match:
       issue = match.group(1)
       url = input
